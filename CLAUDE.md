@@ -13,7 +13,30 @@ Automatically exports conversations when sessions end:
 - **Smart titles**: Derived from first user message
 - **Per-project**: Exports to `./AGENTS/convos/` from working directory
 
-**Setup**: SessionEnd hook at `~/.claude/hooks/export-session.sh`
+**Setup**:
+
+1. Copy hook to Claude config:
+   ```bash
+   cp hooks/export-session.sh ~/.claude/hooks/
+   chmod +x ~/.claude/hooks/export-session.sh
+   ```
+
+2. Add to `~/.claude/settings.json`:
+   ```json
+   "hooks": {
+     "SessionEnd": [
+       {
+         "hooks": [
+           {
+             "type": "command",
+             "command": "bash \"$HOME/.claude/hooks/export-session.sh\"",
+             "timeout": 30
+           }
+         ]
+       }
+     ]
+   }
+   ```
 
 **Format**:
 - Conversation flow with User/Claude headers
@@ -25,9 +48,11 @@ Automatically exports conversations when sessions end:
 
 ```
 claude-wrap/
+├── hooks/
+│   └── export-session.sh    # SessionEnd hook script
 ├── AGENTS/
-│   └── convos/          # Exported conversations (gitignored)
-├── CLAUDE.md            # This file
+│   └── convos/              # Exported conversations (gitignored)
+├── CLAUDE.md                # This file
 └── .gitignore
 ```
 
