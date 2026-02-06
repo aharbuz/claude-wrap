@@ -1,5 +1,21 @@
 # claude-wrap Progress
 
+## 2026-02-06 - Context Guard verification
+
+Verified the context-guard hook is fully installed and working across all sessions.
+
+### What was done
+- Confirmed hook is registered in `~/.claude/settings.json` for both PreToolUse and PostToolUse
+- Confirmed `~/.claude/hooks/context-guard.sh` exists and is executable
+- Found 11 active state files in `/tmp/`, proving the hook runs on every session
+- Simulated all three thresholds with mock transcripts:
+  - **50%** PostToolUse: soft warning ("start wrapping up") — exit 0
+  - **65%** PostToolUse: urgent warning ("wrap up NOW") — exit 0
+  - **75%** PostToolUse: hard stop message ("STOP. Save progress immediately") — exit 0
+  - **75%** PreToolUse + Read: **blocked** (exit 2)
+  - **75%** PreToolUse + Write: **allowed** (exit 0)
+- All thresholds and tool-blocking behavior confirmed correct
+
 ## 2026-02-06 - Context Guard hook
 
 Added `hooks/context-guard.sh` — monitors real context window usage via API token counts from the transcript and manages session wrap-up.
