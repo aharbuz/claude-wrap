@@ -56,6 +56,20 @@ Monitors real context usage from API token counts and nudges/forces wrap-up at t
 - **PostToolUse**: Injects `systemMessage` warnings into Claude's context at each threshold
 - **PreToolUse**: At 70%+, blocks tools like Read, Glob, Grep, WebSearch (exit 2) while allowing Write, Edit, Bash, TaskUpdate, TaskCreate for saving work
 - **Debouncing**: Caches usage in `/tmp/` state files, re-parses transcript only every 30 seconds
+- **Handoff**: At 60%+, instructs Claude to write `AGENTS/handoff.md` — a continuation prompt that can be used to resume in a fresh session
+
+**Continuation prompt** (`AGENTS/handoff.md`):
+
+When context runs high, Claude writes a handoff file containing:
+1. Summary of what was accomplished
+2. Current state and any issues
+3. Concrete next steps
+4. Key file paths
+
+Resume a fresh session with:
+```bash
+claude -p "$(cat AGENTS/handoff.md)"
+```
 
 **Setup** (in addition to export hook):
 

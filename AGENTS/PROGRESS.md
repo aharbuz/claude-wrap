@@ -16,6 +16,15 @@ Verified the context-guard hook is fully installed and working across all sessio
   - **75%** PreToolUse + Write: **allowed** (exit 0)
 - All thresholds and tool-blocking behavior confirmed correct
 
+## 2026-02-06 - Continuation prompt on context wrap-up
+
+Added auto-handoff: at 60%+ context, Claude is instructed to write `AGENTS/handoff.md` with a continuation prompt (what was done, current state, next steps, key files). Users can resume with `claude -p "$(cat AGENTS/handoff.md)"`.
+
+### What was done
+- Updated PostToolUse messages in `context-guard.sh` at all three thresholds to reference `AGENTS/handoff.md`
+- Updated `CLAUDE.md` with handoff documentation and resume command
+- Updated `README.md` with continuation prompt feature
+
 ## 2026-02-06 - Context Guard hook
 
 Added `hooks/context-guard.sh` — monitors real context window usage via API token counts from the transcript and manages session wrap-up.

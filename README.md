@@ -25,8 +25,14 @@ AGENTS/convos/
 Monitors real context window usage and manages session wrap-up:
 
 - **45%**: Warns Claude to start wrapping up
-- **60%**: Urgently tells Claude to save progress and stop
+- **60%**: Urgently tells Claude to save progress and write a continuation prompt
 - **70%**: Blocks non-essential tools (Read, Grep, WebSearch, etc.) while still allowing Write, Edit, and Bash for saving work
+
+At 60%+, Claude writes a continuation prompt to `AGENTS/handoff.md` so you can resume in a fresh session:
+
+```bash
+claude -p "$(cat AGENTS/handoff.md)"
+```
 
 Uses actual API token counts from the transcript — no guessing.
 
