@@ -1,0 +1,31 @@
+# claude-wrap Progress
+
+## 2026-02-06 - Context Guard hook
+
+Added `hooks/context-guard.sh` — monitors real context window usage via API token counts from the transcript and manages session wrap-up.
+
+### What was done
+- Created `hooks/context-guard.sh` handling both PreToolUse and PostToolUse events
+  - Parses `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` from last assistant message
+  - Computes percentage against 200k context window
+  - PostToolUse: injects `systemMessage` warnings at 45%/60%/70% tiers
+  - PreToolUse: blocks non-essential tools at 70%+ (exit 2), allows Write/Edit/Bash/TaskUpdate/TaskCreate
+  - Debounces with `/tmp/` state files (30-second cache)
+  - macOS-compatible (uses `tail` not `tac`)
+- Updated `~/.claude/settings.json` with PreToolUse and PostToolUse hook entries
+- Updated `CLAUDE.md` and `README.md` with context guard docs and setup instructions
+- Installed hook to `~/.claude/hooks/`
+
+### Also included
+- Pre-existing fix in `export-session.sh`: added `"user"` type alongside `"human"` for message parsing
+
+### Verified
+- Transcript parsing produces correct percentage (tested at 51%)
+- Warning messages fire at correct tiers
+- Tool blocking works (Read blocked, Write allowed at hard threshold)
+- Graceful no-op when transcript missing or below threshold
+
+## 2026-02-05 - Initial setup
+
+- Created `hooks/export-session.sh` — auto-exports conversations on session end
+- Set up repo structure, CLAUDE.md, README.md, .gitignore

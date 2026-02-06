@@ -40,7 +40,7 @@ SHORT_ID="${SESSION_ID:0:8}"
 
 # Extract first user message for title generation
 FIRST_USER_MSG=$(jq -r '
-  select(.type == "human") |
+  select(.type == "human" or .type == "user") |
   .message.content |
   if type == "array" then
     map(select(.type == "text") | .text) | first // ""
@@ -86,7 +86,7 @@ cp "$TRANSCRIPT_PATH" "$JSONL_FILE"
 
   # Process messages with better formatting
   jq -r '
-    if .type == "human" then
+    if (.type == "human" or .type == "user") then
       # User message
       "## User\n\n" + (
         .message.content |

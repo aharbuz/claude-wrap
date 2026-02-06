@@ -4,7 +4,7 @@ Bash hooks for automating Claude Code CLI workflows.
 
 ## Features
 
-### 🔄 Auto-Export on Session End
+### Auto-Export on Session End
 
 Automatically exports conversations when sessions end to `./AGENTS/convos/`:
 
@@ -20,6 +20,16 @@ AGENTS/convos/
 └── 2026-02-05-1145-auto-export-hooks-setup.md
 ```
 
+### Context Guard
+
+Monitors real context window usage and manages session wrap-up:
+
+- **45%**: Warns Claude to start wrapping up
+- **60%**: Urgently tells Claude to save progress and stop
+- **70%**: Blocks non-essential tools (Read, Grep, WebSearch, etc.) while still allowing Write, Edit, and Bash for saving work
+
+Uses actual API token counts from the transcript — no guessing.
+
 ## Installation
 
 ### 1. Install the hook
@@ -29,9 +39,10 @@ AGENTS/convos/
 git clone https://github.com/aharbuz/claude-wrap.git
 cd claude-wrap
 
-# Copy hook to Claude config
+# Copy hooks to Claude config
 cp hooks/export-session.sh ~/.claude/hooks/
-chmod +x ~/.claude/hooks/export-session.sh
+cp hooks/context-guard.sh ~/.claude/hooks/
+chmod +x ~/.claude/hooks/export-session.sh ~/.claude/hooks/context-guard.sh
 ```
 
 ### 2. Configure Claude Code
@@ -51,6 +62,28 @@ Add to `~/.claude/settings.json`:
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
@@ -58,9 +91,9 @@ Add to `~/.claude/settings.json`:
 
 ### 3. Use it
 
-Just work normally in Claude Code. When you end a session (Ctrl+D or `/exit`), conversations auto-export to:
-- `./AGENTS/convos/{timestamp}-{title}.jsonl`
-- `./AGENTS/convos/{timestamp}-{title}.md`
+Just work normally in Claude Code. When you end a session (Ctrl+D or `/exit`):
+- Conversations export to `./AGENTS/convos/{timestamp}-{title}.jsonl`
+- Formatted markdown at `./AGENTS/convos/{timestamp}-{title}.md`
 
 ## Markdown Format
 
