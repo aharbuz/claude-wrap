@@ -366,6 +366,19 @@ if [ "$EVENT_TYPE" = "session-end" ] || [ "$EVENT_TYPE" = "session-clear" ]; the
       echo "*[Session cleared at $(date '+%H:%M')]*"
     } > "$FINAL_MD"
     debug "Created minimal cleared MD: $FINAL_MD"
+  elif [ "$EVENT_TYPE" = "session-end" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+    # No active MD but transcript exists (fallback for session-end without prior compaction)
+    {
+      echo "# ${TITLE}"
+      echo ""
+      echo "**Date:** $(date '+%Y-%m-%d %H:%M')"
+      echo "**Session:** ${SESSION_ID}"
+      echo ""
+      echo "---"
+      echo ""
+      jq_markdown_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "*Could not parse transcript*"
+    } > "$FINAL_MD"
+    debug "Created MD from transcript (fallback): $FINAL_MD"
   fi
 
   if [ -f "$ACTIVE_TXT" ]; then
@@ -404,6 +417,22 @@ if [ "$EVENT_TYPE" = "session-end" ] || [ "$EVENT_TYPE" = "session-clear" ]; the
       echo "════════════════════════════════════════════════════════════════"
     } > "$FINAL_TXT"
     debug "Created minimal cleared TXT: $FINAL_TXT"
+  elif [ "$EVENT_TYPE" = "session-end" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+    # No active TXT but transcript exists (fallback for session-end without prior compaction)
+    {
+      echo "════════════════════════════════════════════════════════════════"
+      echo "Session: ${TITLE}"
+      echo "Date: $(date '+%Y-%m-%d %H:%M')"
+      echo "ID: ${SESSION_ID}"
+      echo "════════════════════════════════════════════════════════════════"
+      echo ""
+      jq_txt_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "(Could not parse transcript)"
+      echo ""
+      echo "════════════════════════════════════════════════════════════════"
+      echo "Session ended: $(date '+%Y-%m-%d %H:%M')"
+      echo "════════════════════════════════════════════════════════════════"
+    } > "$FINAL_TXT"
+    debug "Created TXT from transcript (fallback): $FINAL_TXT"
   fi
 
   # Clean up temp files
