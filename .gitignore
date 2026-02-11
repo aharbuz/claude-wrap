@@ -1,8 +1,14 @@
 # macOS
 .DS_Store
 
-# Session exports
-AGENTS/convos/
+# Environment
+.env
+
+# AGENTS hidden dirs
+AGENTS/.context-in/
+AGENTS/.deliverables/
+AGENTS/.plans/
+AGENTS/.convos/
 
 # Logs
 *.log
