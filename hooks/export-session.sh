@@ -127,6 +127,7 @@ debug "Title=$TITLE"
 
 ACTIVE_JSONL="$EXPORT_DIR/${TITLE}-${SHORT_ID}.jsonl"
 ACTIVE_MD="$EXPORT_DIR/${TITLE}-${SHORT_ID}.md"
+ACTIVE_TXT="$EXPORT_DIR/${TITLE}-${SHORT_ID}.txt"
 
 # --- J. jq markdown filter as shell function ---
 
@@ -189,6 +190,42 @@ jq_markdown_filter() {
   '
 }
 
+# --- J2. jq TXT filter as shell function ---
+
+jq_txt_filter() {
+  jq -r '
+    # Skip meta messages and tool results
+    select(.isMeta != true) |
+    if (.type == "human" or .type == "user") then
+      (.message.content |
+        if type == "array" then
+          map(select(.type == "text") | .text) | join("\n\n")
+        elif type == "string" then .
+        else ""
+        end
+      ) as $content |
+      if $content != "" then "> " + $content + "\n" else empty end
+    elif .type == "assistant" then
+      (.message.content |
+        if type == "array" then
+          map(
+            if .type == "text" and .text != "" then "\u23fa " + .text
+            elif .type == "tool_use" then "\u23fa Using tool: " + .name
+            else empty
+            end
+          ) | join("\n\n")
+        elif type == "string" then
+          if . != "" then "\u23fa " + . else empty end
+        else empty
+        end
+      ) as $content |
+      if $content != "" then $content + "\n" else empty end
+    else
+      empty
+    end
+  '
+}
+
 # --- K. Main dispatch: markdown processing ---
 
 if [ "$EVENT_TYPE" = "session-clear" ]; then
@@ -212,6 +249,16 @@ elif [ "$LAST_LINE" -eq 0 ]; then
     jq_markdown_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "*Could not parse transcript*"
   } > "$ACTIVE_MD"
 
+  {
+    echo "════════════════════════════════════════════════════════════════"
+    echo "Session: ${TITLE}"
+    echo "Date: $(date '+%Y-%m-%d %H:%M')"
+    echo "ID: ${SESSION_ID}"
+    echo "════════════════════════════════════════════════════════════════"
+    echo ""
+    jq_txt_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "(Could not parse transcript)"
+  } > "$ACTIVE_TXT"
+
 elif [ "$TOTAL_LINES" -lt "$LAST_LINE" ]; then
   # Compaction detected: transcript was rewritten, process full new transcript
   debug "Compaction detected (${TOTAL_LINES} < ${LAST_LINE}): processing full new transcript"
@@ -224,12 +271,21 @@ elif [ "$TOTAL_LINES" -lt "$LAST_LINE" ]; then
     jq_markdown_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "*Could not parse transcript*"
   } >> "$ACTIVE_MD"
 
+  {
+    echo ""
+    echo "──── [Compacted at $(date '+%H:%M') | full transcript reprocessed] ────"
+    echo ""
+    jq_txt_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "(Could not parse transcript)"
+  } >> "$ACTIVE_TXT"
+
 elif [ "$TOTAL_LINES" -gt "$LAST_LINE" ]; then
   # Incremental: append only new lines
   NEW_LINES=$((TOTAL_LINES - LAST_LINE))
   debug "Incremental: appending $NEW_LINES new lines (${LAST_LINE}+1 to ${TOTAL_LINES})"
 
   tail -n "$NEW_LINES" "$TRANSCRIPT_PATH" | jq_markdown_filter >> "$ACTIVE_MD" 2>/dev/null || true
+
+  tail -n "$NEW_LINES" "$TRANSCRIPT_PATH" | jq_txt_filter >> "$ACTIVE_TXT" 2>/dev/null || true
 
 else
   debug "No new lines since last checkpoint"
@@ -268,6 +324,7 @@ if [ "$EVENT_TYPE" = "session-end" ] || [ "$EVENT_TYPE" = "session-clear" ]; the
 
   FINAL_JSONL="$EXPORT_DIR/${TIMESTAMP}-${TITLE}${SUFFIX}.jsonl"
   FINAL_MD="$EXPORT_DIR/${TIMESTAMP}-${TITLE}${SUFFIX}.md"
+  FINAL_TXT="$EXPORT_DIR/${TIMESTAMP}-${TITLE}${SUFFIX}.txt"
 
   # Rename active files if they exist
   if [ -f "$ACTIVE_JSONL" ]; then
@@ -301,6 +358,44 @@ if [ "$EVENT_TYPE" = "session-end" ] || [ "$EVENT_TYPE" = "session-clear" ]; the
       echo "*[Session cleared at $(date '+%H:%M')]*"
     } > "$FINAL_MD"
     debug "Created minimal cleared MD: $FINAL_MD"
+  fi
+
+  if [ -f "$ACTIVE_TXT" ]; then
+    if [ "$EVENT_TYPE" = "session-end" ]; then
+      {
+        echo ""
+        echo "════════════════════════════════════════════════════════════════"
+        echo "Session ended: $(date '+%Y-%m-%d %H:%M')"
+        echo "════════════════════════════════════════════════════════════════"
+      } >> "$ACTIVE_TXT"
+    elif [ "$EVENT_TYPE" = "session-clear" ]; then
+      {
+        echo ""
+        echo "──── [Session cleared at $(date '+%H:%M')] ────"
+        echo ""
+        echo "════════════════════════════════════════════════════════════════"
+        echo "Session cleared: $(date '+%Y-%m-%d %H:%M')"
+        echo "════════════════════════════════════════════════════════════════"
+      } >> "$ACTIVE_TXT"
+    fi
+    mv "$ACTIVE_TXT" "$FINAL_TXT"
+    debug "Finalized TXT: $FINAL_TXT"
+  elif [ "$EVENT_TYPE" = "session-clear" ]; then
+    # No active TXT (clear with no prior compact), create minimal file
+    {
+      echo "════════════════════════════════════════════════════════════════"
+      echo "Session: ${TITLE}"
+      echo "Date: $(date '+%Y-%m-%d %H:%M')"
+      echo "ID: ${SESSION_ID}"
+      echo "════════════════════════════════════════════════════════════════"
+      echo ""
+      echo "──── [Session cleared at $(date '+%H:%M')] ────"
+      echo ""
+      echo "════════════════════════════════════════════════════════════════"
+      echo "Session cleared: $(date '+%Y-%m-%d %H:%M')"
+      echo "════════════════════════════════════════════════════════════════"
+    } > "$FINAL_TXT"
+    debug "Created minimal cleared TXT: $FINAL_TXT"
   fi
 
   # Clean up temp files

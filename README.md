@@ -12,6 +12,7 @@ Incrementally exports conversations during the session and finalizes on session 
 - **Compaction-aware**: Detects transcript rewrites and handles them gracefully
 - **JSONL export**: Raw conversation data for reprocessing
 - **Markdown summary**: Formatted conversation with tool uses and results
+- **TXT export**: Clean readable format (`>` user, `⏺` assistant)
 - **Smart titles**: Filenames derived from first user message
 - **Per-project**: Exports to working directory's `AGENTS/.convos/`
 
@@ -20,8 +21,10 @@ Incrementally exports conversations during the session and finalizes on session 
 AGENTS/.convos/
 ├── 2026-02-05-1145-auto-export-hooks-setup_completed.jsonl
 ├── 2026-02-05-1145-auto-export-hooks-setup_completed.md
+├── 2026-02-05-1145-auto-export-hooks-setup_completed.txt
 ├── 2026-02-05-1300-quick-fix_cleared.md        # from /clear
-└── my-task-8372a64f.md                          # active (mid-session)
+├── 2026-02-05-1300-quick-fix_cleared.txt
+└── my-task-8372a64f.{md,txt}                   # active (mid-session)
 ```
 
 **How it works:**
@@ -126,9 +129,9 @@ Add to `~/.claude/settings.json`:
 ### 3. Use it
 
 Just work normally in Claude Code. Conversations are exported incrementally during compaction and finalized when you end the session:
-- Active files (mid-session): `./AGENTS/.convos/{title}-{session_id}.{jsonl,md}`
-- Completed: `./AGENTS/.convos/{timestamp}-{title}_completed.{jsonl,md}`
-- Cleared: `./AGENTS/.convos/{timestamp}-{title}_cleared.{jsonl,md}`
+- Active files (mid-session): `./AGENTS/.convos/{title}-{session_id}.{jsonl,md,txt}`
+- Completed: `./AGENTS/.convos/{timestamp}-{title}_completed.{jsonl,md,txt}`
+- Cleared: `./AGENTS/.convos/{timestamp}-{title}_cleared.{jsonl,md,txt}`
 
 ## Markdown Format
 
@@ -140,6 +143,18 @@ The markdown export includes:
 - **Tool uses**: `🔧 ToolName` with JSON inputs
 - **Tool results**: In code blocks
 - **Compaction markers**: `--- *[Compacted at HH:MM]*` separators between segments
+
+## TXT Format
+
+The TXT export provides a clean, minimal transcript:
+
+- **User messages**: Prefixed with `>`
+- **Assistant messages**: Prefixed with `⏺`
+- **Tool uses**: Shown as `⏺ Using tool: {name}`
+- **Header/footer**: Decorative `════` borders with session name, date, and ID
+- **Compaction markers**: `──── [Compacted at HH:MM | full transcript reprocessed] ────`
+
+Same lifecycle as JSONL and MD — active files are renamed with timestamp on session end.
 
 ## Debugging
 
