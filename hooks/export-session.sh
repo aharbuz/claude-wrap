@@ -328,12 +328,20 @@ if [ "$EVENT_TYPE" = "session-end" ] || [ "$EVENT_TYPE" = "session-clear" ]; the
 
   # Rename active files if they exist
   if [ -f "$ACTIVE_JSONL" ]; then
+    if [ "$EVENT_TYPE" = "session-clear" ]; then
+      # Append clear marker to existing JSONL
+      echo "{\"event\":\"session-clear\",\"timestamp\":\"$(date -Iseconds)\",\"session_id\":\"${SESSION_ID}\"}" >> "$ACTIVE_JSONL"
+    fi
     mv "$ACTIVE_JSONL" "$FINAL_JSONL"
     debug "Finalized JSONL: $FINAL_JSONL"
   elif [ "$EVENT_TYPE" = "session-end" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     # No active JSONL but transcript exists (fallback)
     cp "$TRANSCRIPT_PATH" "$FINAL_JSONL"
     debug "Copied transcript to JSONL (fallback): $FINAL_JSONL"
+  elif [ "$EVENT_TYPE" = "session-clear" ]; then
+    # No active JSONL (clear with no prior compact), create minimal marker file
+    echo "{\"event\":\"session-clear\",\"timestamp\":\"$(date -Iseconds)\",\"session_id\":\"${SESSION_ID}\"}" > "$FINAL_JSONL"
+    debug "Created minimal cleared JSONL: $FINAL_JSONL"
   fi
 
   if [ -f "$ACTIVE_MD" ]; then

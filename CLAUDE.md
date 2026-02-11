@@ -21,7 +21,7 @@ Incrementally exports conversations during the session (on compaction) and final
 |-------|--------|
 | PreCompact | Append only new lines since last checkpoint to active session files |
 | SessionEnd (normal) | Append remaining lines, rename files with timestamp, clean up |
-| SessionEnd (clear) | Skip content processing, finalize files with `_cleared` suffix, clean up |
+| SessionEnd (clear) | Skip content processing, create JSONL clear marker, finalize files with `_cleared` suffix, clean up |
 | SessionEnd (logout) | Skip entirely |
 
 **Active vs finalized files:**
