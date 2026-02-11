@@ -1,93 +1,138 @@
 #!/bin/bash
-# Auto-export conversation transcript on session end
-# Creates both JSONL transcript and formatted markdown summary
-# Exports to [project]/AGENTS/convos/ by default
+# Auto-export conversation transcript with incremental PreCompact support
+# Handles both PreCompact (incremental append) and SessionEnd (finalization)
+# Exports to [project]/AGENTS/.convos/ by default
+#
+# PreCompact:  Append only new lines since last checkpoint to active session files
+# SessionEnd:  Append remaining lines, rename files with timestamp, clean up
+# /clear:      Skip content processing, finalize files with _cleared suffix
+# logout:      Skip entirely
 
-set -e
+set -euo pipefail
 
-# Read JSON input from stdin
+# --- B. Debug logging & dependency check ---
+
+DEBUG_LOG="/tmp/claude-export-debug.log"
+
+debug() {
+  echo "$(date '+%H:%M:%S') [$$] $*" >> "$DEBUG_LOG"
+}
+
+if ! command -v jq &>/dev/null; then
+  debug "FATAL: jq not found"
+  exit 0
+fi
+
+# --- C. Read stdin JSON, parse fields ---
+
 INPUT=$(cat)
-
-# Parse fields from hook input
-REASON=$(echo "$INPUT" | jq -r '.reason // "unknown"')
+HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""')
+REASON=$(echo "$INPUT" | jq -r '.reason // ""')
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 CWD=$(echo "$INPUT" | jq -r '.cwd // ""')
 
-# Skip export on logout
+debug "Event=$HOOK_EVENT Reason=$REASON Session=$SESSION_ID"
+
+# --- D. Early exits ---
+
 if [ "$REASON" = "logout" ]; then
+  debug "Skipping: logout"
   exit 0
 fi
 
-# Validate transcript exists
-if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
-  exit 0
-fi
+# --- E. Export directory ---
 
-# Default export directory: ./AGENTS/convos/ from cwd
 if [ -n "$CWD" ]; then
-  EXPORT_DIR="$CWD/AGENTS/convos"
+  EXPORT_DIR="$CWD/AGENTS/.convos"
 else
   EXPORT_DIR="$HOME/.claude/exports"
 fi
 
-# Create export directory
 mkdir -p "$EXPORT_DIR"
 
-# Generate timestamp
-TIMESTAMP=$(date +"%Y-%m-%d-%H%M")
+# --- F. Detect event type ---
+
 SHORT_ID="${SESSION_ID:0:8}"
+MARKER_FILE="/tmp/claude-export-${SESSION_ID}-lastline"
+TITLE_FILE="/tmp/claude-export-${SESSION_ID}-title"
 
-# Extract first user message for title generation
-FIRST_USER_MSG=$(jq -r '
-  select(.type == "human" or .type == "user") |
-  .message.content |
-  if type == "array" then
-    map(select(.type == "text") | .text) | first // ""
-  elif type == "string" then
-    .
-  else
-    ""
-  end
-' "$TRANSCRIPT_PATH" 2>/dev/null | head -1 | tr -d '\n')
-
-# Clean and truncate for filename (max 50 chars, filename-safe)
-TITLE=$(echo "$FIRST_USER_MSG" | \
-  sed 's/[^a-zA-Z0-9 ]//g' | \
-  tr '[:upper:]' '[:lower:]' | \
-  tr ' ' '-' | \
-  sed 's/--*/-/g' | \
-  sed 's/^-//' | \
-  sed 's/-$//' | \
-  cut -c1-50)
-
-# Fallback title if extraction failed
-if [ -z "$TITLE" ] || [ "$TITLE" = "null" ]; then
-  TITLE="session"
+if [ "$HOOK_EVENT" = "PreCompact" ]; then
+  EVENT_TYPE="precompact"
+elif [ "$REASON" = "clear" ]; then
+  EVENT_TYPE="session-clear"
+else
+  EVENT_TYPE="session-end"
 fi
 
-# Final filename
-BASENAME="${TIMESTAMP}-${TITLE}"
-JSONL_FILE="$EXPORT_DIR/${BASENAME}.jsonl"
-MD_FILE="$EXPORT_DIR/${BASENAME}.md"
+debug "EventType=$EVENT_TYPE"
 
-# Copy transcript
-cp "$TRANSCRIPT_PATH" "$JSONL_FILE"
+# --- G. Marker state ---
 
-# Generate markdown summary with improved formatting
-{
-  echo "# ${TITLE}"
-  echo ""
-  echo "**Date:** $(date '+%Y-%m-%d %H:%M')"
-  echo "**Session:** ${SESSION_ID}"
-  echo ""
-  echo "---"
-  echo ""
+LAST_LINE=0
+if [ -f "$MARKER_FILE" ]; then
+  LAST_LINE=$(cat "$MARKER_FILE")
+fi
 
-  # Process messages with better formatting
+TOTAL_LINES=0
+if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+  TOTAL_LINES=$(wc -l < "$TRANSCRIPT_PATH" | tr -d ' ')
+fi
+
+debug "LastLine=$LAST_LINE TotalLines=$TOTAL_LINES"
+
+# --- H. Title extraction (first run only, persist to file) ---
+
+extract_title() {
+  local transcript="$1"
+  local first_msg
+  first_msg=$(jq -r '
+    select(.type == "human" or .type == "user") |
+    .message.content |
+    if type == "array" then
+      map(select(.type == "text") | .text) | first // ""
+    elif type == "string" then
+      .
+    else
+      ""
+    end
+  ' "$transcript" 2>/dev/null | head -1 | tr -d '\n')
+
+  echo "$first_msg" | \
+    sed 's/[^a-zA-Z0-9 ]//g' | \
+    tr '[:upper:]' '[:lower:]' | \
+    tr ' ' '-' | \
+    sed 's/--*/-/g' | \
+    sed 's/^-//' | \
+    sed 's/-$//' | \
+    cut -c1-50
+}
+
+if [ -f "$TITLE_FILE" ]; then
+  TITLE=$(cat "$TITLE_FILE")
+else
+  TITLE=""
+  if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+    TITLE=$(extract_title "$TRANSCRIPT_PATH")
+  fi
+  if [ -z "$TITLE" ] || [ "$TITLE" = "null" ]; then
+    TITLE="session"
+  fi
+  echo "$TITLE" > "$TITLE_FILE"
+fi
+
+debug "Title=$TITLE"
+
+# --- I. Active file paths ---
+
+ACTIVE_JSONL="$EXPORT_DIR/${TITLE}-${SHORT_ID}.jsonl"
+ACTIVE_MD="$EXPORT_DIR/${TITLE}-${SHORT_ID}.md"
+
+# --- J. jq markdown filter as shell function ---
+
+jq_markdown_filter() {
   jq -r '
     if (.type == "human" or .type == "user") then
-      # User message
       "## User\n\n" + (
         .message.content |
         if type == "array" then
@@ -102,7 +147,6 @@ cp "$TRANSCRIPT_PATH" "$JSONL_FILE"
         end
       ) + "\n"
     elif .type == "assistant" then
-      # Assistant message with tool uses
       "## Claude\n\n" + (
         .message.content |
         if type == "array" then
@@ -122,7 +166,6 @@ cp "$TRANSCRIPT_PATH" "$JSONL_FILE"
         end
       ) + "\n"
     elif .type == "tool_result" then
-      # Tool results
       "### → Result" +
       (if .message.content then
         (
@@ -143,12 +186,131 @@ cp "$TRANSCRIPT_PATH" "$JSONL_FILE"
     else
       empty
     end
-  ' "$TRANSCRIPT_PATH" 2>/dev/null || echo "*Could not parse transcript*"
+  '
+}
 
-} > "$MD_FILE"
+# --- K. Main dispatch: markdown processing ---
 
-# Log the export
-LOG_FILE="$HOME/.claude/export-log.txt"
-echo "$(date '+%Y-%m-%d %H:%M:%S') | $REASON | $MD_FILE" >> "$LOG_FILE"
+if [ "$EVENT_TYPE" = "session-clear" ]; then
+  debug "Session clear: skipping content processing"
 
+elif [ "$TOTAL_LINES" -eq 0 ]; then
+  debug "No transcript content, skipping"
+
+elif [ "$LAST_LINE" -eq 0 ]; then
+  # First run: write header + all content
+  debug "First run: processing all $TOTAL_LINES lines"
+
+  {
+    echo "# ${TITLE}"
+    echo ""
+    echo "**Date:** $(date '+%Y-%m-%d %H:%M')"
+    echo "**Session:** ${SESSION_ID}"
+    echo ""
+    echo "---"
+    echo ""
+    jq_markdown_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "*Could not parse transcript*"
+  } > "$ACTIVE_MD"
+
+elif [ "$TOTAL_LINES" -lt "$LAST_LINE" ]; then
+  # Compaction detected: transcript was rewritten, process full new transcript
+  debug "Compaction detected (${TOTAL_LINES} < ${LAST_LINE}): processing full new transcript"
+
+  {
+    echo ""
+    echo "---"
+    echo "*[Compacted at $(date '+%H:%M')]*"
+    echo ""
+    jq_markdown_filter < "$TRANSCRIPT_PATH" 2>/dev/null || echo "*Could not parse transcript*"
+  } >> "$ACTIVE_MD"
+
+elif [ "$TOTAL_LINES" -gt "$LAST_LINE" ]; then
+  # Incremental: append only new lines
+  NEW_LINES=$((TOTAL_LINES - LAST_LINE))
+  debug "Incremental: appending $NEW_LINES new lines (${LAST_LINE}+1 to ${TOTAL_LINES})"
+
+  tail -n "$NEW_LINES" "$TRANSCRIPT_PATH" | jq_markdown_filter >> "$ACTIVE_MD" 2>/dev/null || true
+
+else
+  debug "No new lines since last checkpoint"
+fi
+
+# --- L. JSONL incremental append ---
+
+if [ "$EVENT_TYPE" != "session-clear" ] && [ "$TOTAL_LINES" -gt 0 ]; then
+  if [ "$LAST_LINE" -eq 0 ]; then
+    cp "$TRANSCRIPT_PATH" "$ACTIVE_JSONL"
+  elif [ "$TOTAL_LINES" -lt "$LAST_LINE" ]; then
+    # Compaction: append full new transcript (preserves pre-compaction data)
+    cat "$TRANSCRIPT_PATH" >> "$ACTIVE_JSONL"
+  elif [ "$TOTAL_LINES" -gt "$LAST_LINE" ]; then
+    NEW_LINES=$((TOTAL_LINES - LAST_LINE))
+    tail -n "$NEW_LINES" "$TRANSCRIPT_PATH" >> "$ACTIVE_JSONL"
+  fi
+fi
+
+# --- M. Update marker ---
+
+if [ "$TOTAL_LINES" -gt 0 ]; then
+  echo "$TOTAL_LINES" > "$MARKER_FILE"
+fi
+
+# --- N. Finalization (SessionEnd only) ---
+
+if [ "$EVENT_TYPE" = "session-end" ] || [ "$EVENT_TYPE" = "session-clear" ]; then
+  TIMESTAMP=$(date +"%Y-%m-%d-%H%M")
+
+  if [ "$EVENT_TYPE" = "session-end" ]; then
+    SUFFIX="_completed"
+  else
+    SUFFIX="_cleared"
+  fi
+
+  FINAL_JSONL="$EXPORT_DIR/${TIMESTAMP}-${TITLE}${SUFFIX}.jsonl"
+  FINAL_MD="$EXPORT_DIR/${TIMESTAMP}-${TITLE}${SUFFIX}.md"
+
+  # Rename active files if they exist
+  if [ -f "$ACTIVE_JSONL" ]; then
+    mv "$ACTIVE_JSONL" "$FINAL_JSONL"
+    debug "Finalized JSONL: $FINAL_JSONL"
+  elif [ "$EVENT_TYPE" = "session-end" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+    # No active JSONL but transcript exists (fallback)
+    cp "$TRANSCRIPT_PATH" "$FINAL_JSONL"
+    debug "Copied transcript to JSONL (fallback): $FINAL_JSONL"
+  fi
+
+  if [ -f "$ACTIVE_MD" ]; then
+    if [ "$EVENT_TYPE" = "session-clear" ]; then
+      {
+        echo ""
+        echo "---"
+        echo "*[Session cleared at $(date '+%H:%M')]*"
+      } >> "$ACTIVE_MD"
+    fi
+    mv "$ACTIVE_MD" "$FINAL_MD"
+    debug "Finalized MD: $FINAL_MD"
+  elif [ "$EVENT_TYPE" = "session-clear" ]; then
+    # No active MD (clear with no prior compact), create minimal file
+    {
+      echo "# ${TITLE}"
+      echo ""
+      echo "**Date:** $(date '+%Y-%m-%d %H:%M')"
+      echo "**Session:** ${SESSION_ID}"
+      echo ""
+      echo "---"
+      echo "*[Session cleared at $(date '+%H:%M')]*"
+    } > "$FINAL_MD"
+    debug "Created minimal cleared MD: $FINAL_MD"
+  fi
+
+  # Clean up temp files
+  rm -f "$MARKER_FILE" "$TITLE_FILE"
+  debug "Cleaned up temp files for session $SESSION_ID"
+
+  # Log the export
+  LOG_FILE="$HOME/.claude/export-log.txt"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') | ${EVENT_TYPE} | ${FINAL_MD}" >> "$LOG_FILE"
+fi
+
+debug "Done: $EVENT_TYPE"
 exit 0
