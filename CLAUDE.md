@@ -86,13 +86,13 @@ Incrementally exports conversations during the session (on compaction) and final
 
 Monitors real context usage from API token counts and nudges/forces wrap-up at thresholds:
 
-- **50-65%**: Warn - finish current task, start preparing handoff
-- **66-75%**: Urgent - wrap up NOW, save progress
-- **76%+**: Hard stop - blocks non-essential tools, forces immediate session end
+- **45-59%**: Warn - finish current task, start preparing handoff
+- **60-69%**: Urgent - wrap up NOW, save progress
+- **70%+**: Critical - strongest warning, save work immediately (no tool blocking)
 
 **How it works**:
 - **PostToolUse**: Injects `systemMessage` warnings into Claude's context at each threshold
-- **PreToolUse**: At 70%+, blocks tools like Read, Glob, Grep, WebSearch (exit 2) while allowing Write, Edit, Bash, TaskUpdate, TaskCreate for saving work
+- **PreToolUse**: At 70%+, injects critical-urgency warning (no tool blocking)
 - **Debouncing**: Caches usage in `/tmp/` state files, re-parses transcript only every 30 seconds
 - **Handoff**: At 60%+, instructs Claude to write `AGENTS/.convos/continue/[timestamp]-CONTINUE.md` — a continuation prompt that can be used to resume in a fresh session
 
