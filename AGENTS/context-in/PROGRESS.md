@@ -1,5 +1,18 @@
 # claude-wrap Progress
 
+## 2026-02-16 - Plan Verifier hook
+
+Added `hooks/plan-verifier.sh` — a PreToolUse hook that automatically audits plans against the original request before presenting them for approval.
+
+### What was done
+- Created `hooks/plan-verifier.sh` — intercepts `ExitPlanMode` calls
+  - First call: blocks and injects verification prompt (coverage scoring, gap analysis, plan patching)
+  - Second call: flag file consumed, call allowed through
+  - Resets on each revision cycle (user rejects → next ExitPlanMode triggers verification again)
+  - Uses `/tmp/claude-plan-verified-{SESSION_ID}` flag file
+- Updated `CLAUDE.md` with plan-verifier documentation, setup instructions, and hook interaction notes
+- Updated structure section to include the new hook file
+
 ## 2026-02-06 - Context Guard verification
 
 Verified the context-guard hook is fully installed and working across all sessions.

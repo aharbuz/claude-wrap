@@ -147,13 +147,126 @@ claude -p "$(cat AGENTS/.convos/continue/2026-02-11-1445-CONTINUE.md)"
    ]
    ```
 
+### Stop Wrap-Up
+
+Automatically detects when Claude finishes meaningful work and injects wrap-up instructions (update docs, write continuation prompt, commit, push) before the session ends.
+
+**How it works**:
+
+The hook fires every time Claude stops responding. It runs through 5 guards:
+
+| Guard | Check | If triggered |
+|-------|-------|-------------|
+| **Loop prevention** | `stop_hook_active == true` | Allow stop (wrap-up already injected) |
+| **Short conversation** | < 6 transcript lines | Allow stop (just a quick Q&A) |
+| **No recent file changes** | No Write/Edit in last ~50 lines | Allow stop (no work to commit) |
+| **Last response is tool-heavy** | Last assistant message has tool_use | Allow stop (still mid-work) |
+| **Already committed** | Recent `git commit` in last ~30 lines | Allow stop (already wrapped up) |
+
+If all guards pass → blocks the stop and injects self-contained wrap-up instructions as the `reason`.
+
+Guards 3 and 4 together detect "finished meaningful work": recent file edits + last response was a text summary (not a tool use) = Claude just finished a chunk of work and is presenting results.
+
+**Wrap-up steps injected**:
+1. Update docs (PROGRESS.md, README if structure changed, others per CLAUDE.md)
+2. Write continuation prompt if more planned work remains
+3. Commit uncommitted changes
+4. Push if remote is configured
+
+**Interaction with other hooks**:
+- **Context guard**: If context-guard already urged wrap-up and Claude committed, Guard 5 catches the recent commit and defers
+- **Bash-only work**: Won't trigger (Guard 3 checks for Write/Edit only) — intentional since Bash-only sessions rarely need doc updates
+- **Non-git projects**: Wrap-up instructions handle gracefully ("if this is a git repo")
+
+**Setup**:
+
+1. Copy hook to Claude config:
+   ```bash
+   cp hooks/stop-wrapup.sh ~/.claude/hooks/
+   chmod +x ~/.claude/hooks/stop-wrapup.sh
+   ```
+
+2. Add to `~/.claude/settings.json` (alongside existing hooks):
+   ```json
+   "Stop": [
+     {
+       "hooks": [
+         {
+           "type": "command",
+           "command": "bash \"$HOME/.claude/hooks/stop-wrapup.sh\"",
+           "timeout": 15
+         }
+       ]
+     }
+   ]
+   ```
+
+### Plan Verifier
+
+Automatically audits plans against the original request before presenting them for approval. Eliminates the need to manually paste a verification prompt after every planning session.
+
+**How it works**:
+
+A PreToolUse hook intercepts `ExitPlanMode` calls:
+
+| Call | Action |
+|------|--------|
+| 1st `ExitPlanMode` | Blocked — verification prompt injected, flag file set |
+| Claude audits | Coverage analysis, gap identification, plan patching |
+| 2nd `ExitPlanMode` | Flag found — removed, call allowed through |
+
+If the user rejects the plan and Claude revises, the next `ExitPlanMode` triggers verification again (the flag was consumed on the previous pass).
+
+**Verification steps injected**:
+1. Mark each requirement as Covered / Partial / Missing with citations
+2. Coverage score (0–100) with rationale
+3. Top gaps prioritized by impact
+4. Patched plan written to plan file (minimal changes, preserve structure)
+
+**Temp files**:
+- `/tmp/claude-plan-verified-{SESSION_ID}` — one-shot flag file (created on block, removed on allow)
+
+**Setup**:
+
+1. Copy hook to Claude config:
+   ```bash
+   cp hooks/plan-verifier.sh ~/.claude/hooks/
+   chmod +x ~/.claude/hooks/plan-verifier.sh
+   ```
+
+2. Add to `~/.claude/settings.json` — chain with existing PreToolUse hooks:
+   ```json
+   "PreToolUse": [
+     {
+       "hooks": [
+         {
+           "type": "command",
+           "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
+           "timeout": 10
+         },
+         {
+           "type": "command",
+           "command": "bash \"$HOME/.claude/hooks/plan-verifier.sh\"",
+           "timeout": 10
+         }
+       ]
+     }
+   ]
+   ```
+
+**Interaction with other hooks**:
+- **Context guard**: Both run as PreToolUse hooks — context-guard checks context usage, plan-verifier checks for ExitPlanMode. They don't conflict since plan-verifier exits early for non-ExitPlanMode tools.
+- **Stop wrap-up**: Plan verification happens during active work, well before stop conditions are met.
+
 ## Structure
 
 ```
 claude-wrap/
 ├── hooks/
 │   ├── export-session.sh    # PreCompact + SessionEnd hook script
-│   └── context-guard.sh     # PreToolUse/PostToolUse context monitor
+│   ├── context-guard.sh     # PreToolUse/PostToolUse context monitor
+│   ├── stop-wrapup.sh       # Stop hook - automated wrap-up
+│   └── plan-verifier.sh     # PreToolUse - plan audit before approval
 ├── AGENTS/
 │   └── .convos/              # Exported conversations (gitignored)
 ├── CLAUDE.md                # This file

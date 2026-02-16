@@ -56,6 +56,23 @@ claude -p "$(cat AGENTS/.convos/continue/2026-02-11-1445-CONTINUE.md)"
 
 Uses actual API token counts from the transcript.
 
+### Stop Wrap-Up
+
+Automatically detects when Claude finishes meaningful work and injects wrap-up instructions before the session ends. Ensures docs get updated, progress is committed, and continuation prompts are created when needed.
+
+The hook runs 5 guards to avoid false triggers:
+- Skips if wrap-up was already injected (loop prevention)
+- Skips short Q&A sessions (< 6 transcript lines)
+- Skips if no recent file edits (Write/Edit in last ~50 lines)
+- Skips if Claude is still mid-work (last response contains tool uses)
+- Skips if already committed recently
+
+When triggered, Claude is instructed to: update project docs, write a continuation prompt (if more work remains), commit, and push.
+
+### Plan Verifier
+
+Automatically audits plans against the original request before presenting them for approval. A PreToolUse hook intercepts `ExitPlanMode` — the first call is blocked while Claude performs a coverage audit (requirement-by-requirement scoring, gap analysis, plan patching), then the second call is allowed through with the verified plan. Resets on each revision cycle so rejected plans get re-verified.
+
 ## Installation
 
 ### 1. Install the hooks
@@ -68,7 +85,9 @@ cd claude-wrap
 # Copy hooks to Claude config
 cp hooks/export-session.sh ~/.claude/hooks/
 cp hooks/context-guard.sh ~/.claude/hooks/
-chmod +x ~/.claude/hooks/export-session.sh ~/.claude/hooks/context-guard.sh
+cp hooks/stop-wrapup.sh ~/.claude/hooks/
+cp hooks/plan-verifier.sh ~/.claude/hooks/
+chmod +x ~/.claude/hooks/export-session.sh ~/.claude/hooks/context-guard.sh ~/.claude/hooks/stop-wrapup.sh ~/.claude/hooks/plan-verifier.sh
 ```
 
 ### 2. Configure Claude Code
@@ -107,6 +126,11 @@ Add to `~/.claude/settings.json`:
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/plan-verifier.sh\"",
+            "timeout": 10
           }
         ]
       }
@@ -118,6 +142,17 @@ Add to `~/.claude/settings.json`:
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/stop-wrapup.sh\"",
+            "timeout": 15
           }
         ]
       }
