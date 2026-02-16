@@ -1,5 +1,22 @@
 # claude-wrap Progress
 
+## 2026-02-16 - Stop Wrap-Up hook
+
+Added `hooks/stop-wrapup.sh` — a Stop hook that detects when Claude finishes meaningful work and injects wrap-up instructions (update docs, continuation prompt, commit, push).
+
+### What was done
+- Created `hooks/stop-wrapup.sh` with 5 guards:
+  - Loop prevention (`stop_hook_active == true`)
+  - Short conversation (< 6 transcript lines)
+  - No recent file changes (no Write/Edit in last ~50 lines)
+  - Mid-work detection (last assistant message has tool_use)
+  - Already committed (recent `git commit` in last ~30 lines)
+- When all guards pass, blocks stop and injects wrap-up steps (docs, continuation prompt, commit, push)
+- Installed to `~/.claude/hooks/stop-wrapup.sh`
+- Added Stop hook entry to `~/.claude/settings.json`
+- Updated `CLAUDE.md` with documentation, guards table, setup instructions
+- Updated `README.md` with feature description and install step
+
 ## 2026-02-16 - Plan Verifier hook
 
 Added `hooks/plan-verifier.sh` — a PreToolUse hook that automatically audits plans against the original request before presenting them for approval.
