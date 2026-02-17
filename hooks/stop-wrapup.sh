@@ -19,6 +19,24 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""')
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT_PATH" | tr -d ' ')
 [ "$TOTAL_LINES" -lt 6 ] && exit 0
 
+# Guard 2.5: Re-trigger prevention
+# If wrap-up was previously triggered this session, only fire again if there
+# are NEW Write/Edit calls after the last trigger point. Prevents re-triggering
+# during back-and-forth discussion/debugging after initial wrap-up.
+WRAPUP_STATE="/tmp/claude-stop-wrapup-${SESSION_ID}"
+if [ -f "$WRAPUP_STATE" ]; then
+  LAST_WRAPUP_LINE=$(cat "$WRAPUP_STATE" 2>/dev/null || echo "0")
+  if [ "$TOTAL_LINES" -lt "$LAST_WRAPUP_LINE" ]; then
+    # Transcript was compacted — reset state, proceed with normal guards
+    rm -f "$WRAPUP_STATE"
+  else
+    LINES_SINCE=$((TOTAL_LINES - LAST_WRAPUP_LINE))
+    if [ "$LINES_SINCE" -le 0 ] || ! tail -"$LINES_SINCE" "$TRANSCRIPT_PATH" | grep -q '"name":\s*"Write"\|"name":\s*"Edit"' 2>/dev/null; then
+      exit 0  # No new edits since last wrap-up — don't re-trigger
+    fi
+  fi
+fi
+
 # Guard 3: Check for RECENT Write/Edit tool uses (last ~50 lines)
 # Avoids triggering on sessions where edits happened long ago
 if ! tail -50 "$TRANSCRIPT_PATH" | grep -q '"name":\s*"Write"\|"name":\s*"Edit"' 2>/dev/null; then
@@ -59,5 +77,8 @@ REASON="You have completed meaningful work. Before stopping, perform these wrap-
 4. PUSH: If a git remote is configured (git remote -v), push. Otherwise skip.
 
 Do these steps now, then you may stop."
+
+# Record trigger point for re-trigger prevention
+echo "$TOTAL_LINES" > "$WRAPUP_STATE"
 
 jq -n --arg reason "$REASON" '{"decision": "block", "reason": $reason}'

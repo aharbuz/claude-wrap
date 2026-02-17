@@ -3,8 +3,7 @@
 # Handles both PreToolUse and PostToolUse hook events
 #
 # Thresholds:
-#   45-59%: Warn - start wrapping up
-#   60-69%: Urgent - wrap up NOW
+#   60-69%: Warn - start wrapping up
 #   70%+:   Critical - strongest warning, save work immediately
 #
 # Token calculation:
@@ -73,7 +72,7 @@ if [ "$CONTEXT_PCT" -eq 0 ]; then
 fi
 
 # --- Below threshold: nothing to do ---
-if [ "$CONTEXT_PCT" -lt 45 ]; then
+if [ "$CONTEXT_PCT" -lt 60 ]; then
   exit 0
 fi
 
@@ -93,8 +92,6 @@ if [ "$HOOK_EVENT" = "PostToolUse" ]; then
 
   if [ "$CONTEXT_PCT" -ge 70 ]; then
     MSG='CONTEXT AT '"${CONTEXT_PCT}"'%. STOP. Do not start new work. Write a continuation prompt to '"${CONTINUE_PATH}"' with: (1) a summary of what was accomplished, (2) current state and any issues, (3) concrete next steps, (4) key file paths. The user can resume with: claude -p "$(cat '"${CONTINUE_PATH}"')". Then end the session.'
-  elif [ "$CONTEXT_PCT" -ge 60 ]; then
-    MSG="Context at ${CONTEXT_PCT}%. Wrap up NOW. Finish your current edit, then write a continuation prompt to ${CONTINUE_PATH} with: (1) what was done, (2) what remains, (3) next steps, (4) key file paths. Do not begin any new tasks."
   else
     MSG="Context at ${CONTEXT_PCT}%. Start wrapping up at the next sensible point. Finish what you're doing, then prepare to write a continuation prompt to ${CONTINUE_PATH}."
   fi

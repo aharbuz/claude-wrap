@@ -86,8 +86,7 @@ Incrementally exports conversations during the session (on compaction) and final
 
 Monitors real context usage from API token counts and nudges/forces wrap-up at thresholds:
 
-- **45-59%**: Warn - finish current task, start preparing handoff
-- **60-69%**: Urgent - wrap up NOW, save progress
+- **60-69%**: Warn - finish current task, start preparing handoff
 - **70%+**: Critical - strongest warning, save work immediately (no tool blocking)
 
 **How it works**:
@@ -159,6 +158,7 @@ The hook fires every time Claude stops responding. It runs through 5 guards:
 |-------|-------|-------------|
 | **Loop prevention** | `stop_hook_active == true` | Allow stop (wrap-up already injected) |
 | **Short conversation** | < 6 transcript lines | Allow stop (just a quick Q&A) |
+| **Re-trigger prevention** | No new Write/Edit since last wrap-up trigger | Allow stop (still discussing, no new edits) |
 | **No recent file changes** | No Write/Edit in last ~50 lines | Allow stop (no work to commit) |
 | **Last response is tool-heavy** | Last assistant message has tool_use | Allow stop (still mid-work) |
 | **Already committed** | Recent `git commit` in last ~30 lines | Allow stop (already wrapped up) |
@@ -166,6 +166,8 @@ The hook fires every time Claude stops responding. It runs through 5 guards:
 If all guards pass → blocks the stop and injects self-contained wrap-up instructions as the `reason`.
 
 Guards 3 and 4 together detect "finished meaningful work": recent file edits + last response was a text summary (not a tool use) = Claude just finished a chunk of work and is presenting results.
+
+The re-trigger prevention guard tracks the transcript line where wrap-up last fired. Subsequent stops only re-trigger if there are NEW Write/Edit calls after that point, preventing repeated wrap-up prompts during back-and-forth debugging or discussion. The state resets if the transcript is compacted.
 
 **Wrap-up steps injected**:
 1. Update docs (PROGRESS.md, README if structure changed, others per CLAUDE.md)
@@ -177,6 +179,9 @@ Guards 3 and 4 together detect "finished meaningful work": recent file edits + l
 - **Context guard**: If context-guard already urged wrap-up and Claude committed, Guard 5 catches the recent commit and defers
 - **Bash-only work**: Won't trigger (Guard 3 checks for Write/Edit only) — intentional since Bash-only sessions rarely need doc updates
 - **Non-git projects**: Wrap-up instructions handle gracefully ("if this is a git repo")
+
+**Temp files**:
+- `/tmp/claude-stop-wrapup-{SESSION_ID}` — transcript line of last wrap-up trigger (for re-trigger prevention)
 
 **Setup**:
 
