@@ -1,5 +1,15 @@
 # claude-wrap Progress
 
+## 2026-02-17 - Plan Verifier deployment fix
+
+The plan-verifier hook was committed to the repo (2026-02-16) but never deployed to `~/.claude/hooks/` or wired into `settings.json`. Diagnosed and fixed.
+
+### What was done
+- Diagnosed why plan verification wasn't auto-triggering on `ExitPlanMode`
+- Copied `hooks/plan-verifier.sh` to `~/.claude/hooks/plan-verifier.sh` with execute permission
+- Added plan-verifier entry to `PreToolUse` hooks array in `~/.claude/settings.json`, chained after context-guard
+- Confirmed it fires correctly in a live session
+
 ## 2026-02-16 - Stop Wrap-Up hook
 
 Added `hooks/stop-wrapup.sh` — a Stop hook that detects when Claude finishes meaningful work and injects wrap-up instructions (update docs, continuation prompt, commit, push).
