@@ -146,65 +146,35 @@ claude -p "$(cat AGENTS/.convos/continue/2026-02-11-1445-CONTINUE.md)"
    ]
    ```
 
-### Stop Wrap-Up
+### Wrap-Up Skill (`/wrap-up`)
 
-Automatically detects when Claude finishes meaningful work and injects wrap-up instructions (update docs, write continuation prompt, commit, push) before the session ends.
+User-triggered session wrap-up. Replaces the previous automatic Stop hook, which was too jumpy — it fired on sub-task completions when the user intended to continue working.
 
-**How it works**:
+**How it works**: The user says `/wrap-up` (or "wrap up", "end session", "let's wrap up") and Claude runs through the wrap-up steps: update docs, write continuation prompt, commit, push.
 
-The hook fires every time Claude stops responding. It runs through 5 guards:
+**Urgent sessions**: Context guard (60%+) still handles automatic wrap-up nudges. At 60% it mentions `/wrap-up` so Claude knows the explicit command exists.
 
-| Guard | Check | If triggered |
-|-------|-------|-------------|
-| **Loop prevention** | `stop_hook_active == true` | Allow stop (wrap-up already injected) |
-| **Short conversation** | < 6 transcript lines | Allow stop (just a quick Q&A) |
-| **Re-trigger prevention** | No new Write/Edit since last wrap-up trigger | Allow stop (still discussing, no new edits) |
-| **No recent file changes** | No Write/Edit in last ~50 lines | Allow stop (no work to commit) |
-| **Last response is tool-heavy** | Last assistant message has tool_use | Allow stop (still mid-work) |
-| **Already committed** | Recent `git commit` in last ~30 lines | Allow stop (already wrapped up) |
-
-If all guards pass → blocks the stop and injects self-contained wrap-up instructions as the `reason`.
-
-Guards 3 and 4 together detect "finished meaningful work": recent file edits + last response was a text summary (not a tool use) = Claude just finished a chunk of work and is presenting results.
-
-The re-trigger prevention guard tracks the transcript line where wrap-up last fired. Subsequent stops only re-trigger if there are NEW Write/Edit calls after that point, preventing repeated wrap-up prompts during back-and-forth debugging or discussion. The state resets if the transcript is compacted.
-
-**Wrap-up steps injected**:
-1. Update docs (PROGRESS.md, README if structure changed, others per CLAUDE.md)
-2. Write continuation prompt if more planned work remains
-3. Commit uncommitted changes
-4. Push if remote is configured
-
-**Interaction with other hooks**:
-- **Context guard**: If context-guard already urged wrap-up and Claude committed, Guard 5 catches the recent commit and defers
-- **Bash-only work**: Won't trigger (Guard 3 checks for Write/Edit only) — intentional since Bash-only sessions rarely need doc updates
-- **Non-git projects**: Wrap-up instructions handle gracefully ("if this is a git repo")
-
-**Temp files**:
-- `/tmp/claude-stop-wrapup-{SESSION_ID}` — transcript line of last wrap-up trigger (for re-trigger prevention)
+**Tradeoff**: Low-context sessions that end without `/wrap-up` won't get automatic doc updates or commits. The work is still on disk (SessionEnd export captures the conversation), just not committed. This is acceptable — false-positive interruptions from the old Stop hook were worse.
 
 **Setup**:
 
-1. Copy hook to Claude config:
-   ```bash
-   cp hooks/stop-wrapup.sh ~/.claude/hooks/
-   chmod +x ~/.claude/hooks/stop-wrapup.sh
-   ```
+The skill file lives at `~/.claude/skills/wrap-up/SKILL.md`. No hook configuration needed.
 
-2. Add to `~/.claude/settings.json` (alongside existing hooks):
-   ```json
-   "Stop": [
-     {
-       "hooks": [
-         {
-           "type": "command",
-           "command": "bash \"$HOME/.claude/hooks/stop-wrapup.sh\"",
-           "timeout": 15
-         }
-       ]
-     }
-   ]
-   ```
+If you previously had a Stop hook in `~/.claude/settings.json`, remove the `"Stop"` section:
+```json
+// REMOVE this from settings.json:
+"Stop": [
+  {
+    "hooks": [
+      {
+        "type": "command",
+        "command": "bash \"$HOME/.claude/hooks/stop-wrapup.sh\"",
+        "timeout": 15
+      }
+    ]
+  }
+]
+```
 
 ### Plan Verifier
 
@@ -261,7 +231,7 @@ If the user rejects the plan and Claude revises, the next `ExitPlanMode` trigger
 
 **Interaction with other hooks**:
 - **Context guard**: Both run as PreToolUse hooks — context-guard checks context usage, plan-verifier checks for ExitPlanMode. They don't conflict since plan-verifier exits early for non-ExitPlanMode tools.
-- **Stop wrap-up**: Plan verification happens during active work, well before stop conditions are met.
+- **Wrap-up skill**: Plan verification happens during active work, before the user triggers `/wrap-up`.
 
 ## Structure
 
@@ -270,7 +240,7 @@ claude-wrap/
 ├── hooks/
 │   ├── export-session.sh    # PreCompact + SessionEnd hook script
 │   ├── context-guard.sh     # PreToolUse/PostToolUse context monitor
-│   ├── stop-wrapup.sh       # Stop hook - automated wrap-up
+│   ├── stop-wrapup.sh       # Retired - replaced by /wrap-up skill
 │   └── plan-verifier.sh     # PreToolUse - plan audit before approval
 ├── AGENTS/
 │   └── .convos/              # Exported conversations (gitignored)

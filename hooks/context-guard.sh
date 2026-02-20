@@ -93,7 +93,7 @@ if [ "$HOOK_EVENT" = "PostToolUse" ]; then
   if [ "$CONTEXT_PCT" -ge 70 ]; then
     MSG='CONTEXT AT '"${CONTEXT_PCT}"'%. STOP. Do not start new work. Write a continuation prompt to '"${CONTINUE_PATH}"' with: (1) a summary of what was accomplished, (2) current state and any issues, (3) concrete next steps, (4) key file paths. The user can resume with: claude -p "$(cat '"${CONTINUE_PATH}"')". Then end the session.'
   else
-    MSG="Context at ${CONTEXT_PCT}%. Start wrapping up at the next sensible point. Finish what you're doing, then prepare to write a continuation prompt to ${CONTINUE_PATH}."
+    MSG="Context at ${CONTEXT_PCT}%. Start wrapping up — run /wrap-up when ready, or finish your current task first. Prepare to write a continuation prompt to ${CONTINUE_PATH}."
   fi
 
   # Output JSON with systemMessage for Claude to receive (use jq for safe encoding)
