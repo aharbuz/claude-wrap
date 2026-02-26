@@ -233,6 +233,37 @@ If the user rejects the plan and Claude revises, the next `ExitPlanMode` trigger
 - **Context guard**: Both run as PreToolUse hooks — context-guard checks context usage, plan-verifier checks for ExitPlanMode. They don't conflict since plan-verifier exits early for non-ExitPlanMode tools.
 - **Wrap-up skill**: Plan verification happens during active work, before the user triggers `/wrap-up`.
 
+### Prefer pnpm
+
+A PreToolUse hook that blocks `npm` commands and suggests `pnpm` equivalents. Enforces the global CLAUDE.md preference for pnpm over npm.
+
+- **Blocks**: `npm install`, `npm run`, `npm test`, `npm init`, etc.
+- **Allows**: `npx` (not blocked since `pnpm dlx` isn't always a drop-in)
+- **Allows**: `pnpm` commands pass through untouched
+
+**Setup**:
+
+1. Copy hook to Claude config:
+   ```bash
+   cp hooks/prefer-pnpm.sh ~/.claude/hooks/
+   chmod +x ~/.claude/hooks/prefer-pnpm.sh
+   ```
+
+2. Add to `~/.claude/settings.json` — chain with existing PreToolUse hooks:
+   ```json
+   "PreToolUse": [
+     {
+       "hooks": [
+         {
+           "type": "command",
+           "command": "bash \"$HOME/.claude/hooks/prefer-pnpm.sh\"",
+           "timeout": 10
+         }
+       ]
+     }
+   ]
+   ```
+
 ## Structure
 
 ```
@@ -241,7 +272,8 @@ claude-wrap/
 │   ├── export-session.sh    # PreCompact + SessionEnd hook script
 │   ├── context-guard.sh     # PreToolUse/PostToolUse context monitor
 │   ├── stop-wrapup.sh       # Retired - replaced by /wrap-up skill
-│   └── plan-verifier.sh     # PreToolUse - plan audit before approval
+│   ├── plan-verifier.sh     # PreToolUse - plan audit before approval
+│   └── prefer-pnpm.sh      # PreToolUse - block npm, suggest pnpm
 ├── AGENTS/
 │   └── .convos/              # Exported conversations (gitignored)
 ├── CLAUDE.md                # This file

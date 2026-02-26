@@ -1,5 +1,24 @@
 # claude-wrap Progress
 
+## 2026-02-26 - Prefer pnpm hook
+
+Added `hooks/prefer-pnpm.sh` — a PreToolUse hook that blocks `npm` commands and suggests `pnpm` equivalents. Enforces the global CLAUDE.md preference deterministically.
+
+### What was done
+- Created `hooks/prefer-pnpm.sh` — intercepts Bash tool calls
+  - Detects `npm` as a standalone command (including in chained commands with `&&`, `||`, `;`)
+  - Blocks with exit 2 and suggests the pnpm equivalent
+  - Allows `npx` through (not blocked)
+- Installed to `~/.claude/hooks/prefer-pnpm.sh`
+- Added to PreToolUse chain in `~/.claude/settings.json` (after plan-verifier)
+- Updated CLAUDE.md with hook documentation and setup instructions
+
+### Verified
+- `npm install express` → blocked, suggests `pnpm install`
+- `npm run build && npm test` → blocked, suggests `pnpm run`
+- `npx create-react-app` → allowed through
+- `pnpm install express` → allowed through
+
 ## 2026-02-17 - Plan Verifier deployment fix
 
 The plan-verifier hook was committed to the repo (2026-02-16) but never deployed to `~/.claude/hooks/` or wired into `settings.json`. Diagnosed and fixed.
