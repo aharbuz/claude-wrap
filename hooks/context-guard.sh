@@ -78,22 +78,16 @@ fi
 
 # --- PreToolUse: urgent warning at 70%+ (no blocking) ---
 if [ "$HOOK_EVENT" = "PreToolUse" ] && [ "$CONTEXT_PCT" -ge 70 ]; then
-  TIMESTAMP=$(date +"%Y-%m-%d-%H%M")
-  CONTINUE_PATH="AGENTS/.convos/continue/${TIMESTAMP}-CONTINUE.md"
-  MSG="CRITICAL: Context at ${CONTEXT_PCT}%. You are using ${TOOL_NAME} but should be wrapping up. Write a continuation prompt to ${CONTINUE_PATH} immediately, commit your work, and end the session."
+  MSG="CRITICAL: Context at ${CONTEXT_PCT}%. Run /wrap-up to save progress at the next natural stopping point and suggest continuing in a new session."
   jq -n --arg msg "$MSG" '{"systemMessage": $msg, "continue": true}'
 fi
 
 # --- PostToolUse: inject system messages at thresholds ---
 if [ "$HOOK_EVENT" = "PostToolUse" ]; then
-  # Generate timestamp for continuation prompt
-  TIMESTAMP=$(date +"%Y-%m-%d-%H%M")
-  CONTINUE_PATH="AGENTS/.convos/continue/${TIMESTAMP}-CONTINUE.md"
-
   if [ "$CONTEXT_PCT" -ge 70 ]; then
-    MSG='CONTEXT AT '"${CONTEXT_PCT}"'%. STOP. Do not start new work. Write a continuation prompt to '"${CONTINUE_PATH}"' with: (1) a summary of what was accomplished, (2) current state and any issues, (3) concrete next steps, (4) key file paths. The user can resume with: claude -p "$(cat '"${CONTINUE_PATH}"')". Then end the session.'
+    MSG="CONTEXT AT ${CONTEXT_PCT}%. STOP. Do not start new work. Run /wrap-up to save progress at the next natural stopping point and suggest continuing in a new session."
   else
-    MSG="Context at ${CONTEXT_PCT}%. Start wrapping up — run /wrap-up when ready, or finish your current task first. Prepare to write a continuation prompt to ${CONTINUE_PATH}."
+    MSG="Context at ${CONTEXT_PCT}%. Run /wrap-up to save progress at the next natural stopping point and suggest continuing in a new session."
   fi
 
   # Output JSON with systemMessage for Claude to receive (use jq for safe encoding)
