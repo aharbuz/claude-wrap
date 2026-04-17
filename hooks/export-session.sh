@@ -313,6 +313,13 @@ fi
 
 # --- N. Finalization (SessionEnd only) ---
 
+# Skip empty sessions: no content was ever exported and nothing to finalize
+if [ "$TOTAL_LINES" -eq 0 ] && [ ! -f "$ACTIVE_JSONL" ] && [ ! -f "$ACTIVE_MD" ] && [ ! -f "$ACTIVE_TXT" ]; then
+  debug "Empty session, skipping export"
+  rm -f "$MARKER_FILE" "$TITLE_FILE"
+  exit 0
+fi
+
 if [ "$EVENT_TYPE" = "session-end" ] || [ "$EVENT_TYPE" = "session-clear" ]; then
   TIMESTAMP=$(date +"%Y-%m-%d-%H%M")
 
