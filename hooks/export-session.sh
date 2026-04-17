@@ -75,11 +75,16 @@ if [ -f "$MARKER_FILE" ]; then
 fi
 
 TOTAL_LINES=0
+HAS_ASSISTANT=false
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   TOTAL_LINES=$(wc -l < "$TRANSCRIPT_PATH" | tr -d ' ')
+  # Check if Claude ever responded — sessions with only local commands are empty
+  if jq -e 'select(.type == "assistant")' "$TRANSCRIPT_PATH" &>/dev/null; then
+    HAS_ASSISTANT=true
+  fi
 fi
 
-debug "LastLine=$LAST_LINE TotalLines=$TOTAL_LINES"
+debug "LastLine=$LAST_LINE TotalLines=$TOTAL_LINES HasAssistant=$HAS_ASSISTANT"
 
 # --- H. Title extraction (first run only, persist to file) ---
 
@@ -231,8 +236,8 @@ jq_txt_filter() {
 if [ "$EVENT_TYPE" = "session-clear" ]; then
   debug "Session clear: skipping content processing"
 
-elif [ "$TOTAL_LINES" -eq 0 ]; then
-  debug "No transcript content, skipping"
+elif [ "$TOTAL_LINES" -eq 0 ] || [ "$HAS_ASSISTANT" = false ]; then
+  debug "No transcript content or no assistant messages, skipping"
 
 elif [ "$LAST_LINE" -eq 0 ]; then
   # First run: write header + all content
@@ -293,7 +298,7 @@ fi
 
 # --- L. JSONL incremental append ---
 
-if [ "$EVENT_TYPE" != "session-clear" ] && [ "$TOTAL_LINES" -gt 0 ]; then
+if [ "$EVENT_TYPE" != "session-clear" ] && [ "$TOTAL_LINES" -gt 0 ] && [ "$HAS_ASSISTANT" = true ]; then
   if [ "$LAST_LINE" -eq 0 ]; then
     cp "$TRANSCRIPT_PATH" "$ACTIVE_JSONL"
   elif [ "$TOTAL_LINES" -lt "$LAST_LINE" ]; then
@@ -313,9 +318,10 @@ fi
 
 # --- N. Finalization (SessionEnd only) ---
 
-# Skip empty sessions: no content was ever exported and nothing to finalize
-if [ "$TOTAL_LINES" -eq 0 ] && [ ! -f "$ACTIVE_JSONL" ] && [ ! -f "$ACTIVE_MD" ] && [ ! -f "$ACTIVE_TXT" ]; then
-  debug "Empty session, skipping export"
+# Skip empty sessions: no assistant response means no meaningful interaction
+# (sessions with only local commands like /exit still have transcript lines)
+if [ "$HAS_ASSISTANT" = false ] && [ ! -f "$ACTIVE_JSONL" ] && [ ! -f "$ACTIVE_MD" ] && [ ! -f "$ACTIVE_TXT" ]; then
+  debug "Empty session (no assistant messages), skipping export"
   rm -f "$MARKER_FILE" "$TITLE_FILE"
   exit 0
 fi
