@@ -8,7 +8,9 @@
 #
 # Token calculation:
 #   total = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
-#   percentage = total / 200000
+#   percentage = total * 100 / context_window
+#   context_window is derived from the model ID parsed out of the transcript
+#   (unknown models fall back to 200k so warnings fire earlier, not later)
 
 set -e
 
@@ -47,15 +49,37 @@ if [ -f "$STATE_FILE" ]; then
   fi
 fi
 
-# If not cached or stale, parse transcript for latest usage
+# If not cached or stale, parse transcript for latest usage + model
 if [ "$CONTEXT_PCT" -eq 0 ]; then
-  # Get the last assistant message's usage stats from the transcript
-  # Use tail (macOS-compatible, no tac) to read recent lines and find the last usage block
-  USAGE=$(tail -50 "$TRANSCRIPT_PATH" | jq -s '
+  # Read the tail of the transcript once and extract both usage and model
+  # from the most recent assistant message that has usage data.
+  TAIL=$(tail -50 "$TRANSCRIPT_PATH")
+
+  USAGE=$(echo "$TAIL" | jq -s '
     [.[] | select(.type == "assistant" and .message.usage)] |
     last |
     .message.usage // empty
   ' 2>/dev/null)
+
+  MODEL=$(echo "$TAIL" | jq -rs '
+    [.[] | select(.type == "assistant" and .message.model)] |
+    last |
+    .message.model // empty
+  ' 2>/dev/null)
+
+  # Resolve context-window size from the model ID.
+  # Extend this table as new 1M-window models ship. Unknown → 200k (conservative).
+  case "$MODEL" in
+    claude-opus-4-7|claude-opus-4-7-*)
+      CONTEXT_WINDOW=1000000
+      ;;
+    claude-opus-4-*|claude-sonnet-4-*|claude-haiku-4-*)
+      CONTEXT_WINDOW=200000
+      ;;
+    *)
+      CONTEXT_WINDOW=200000
+      ;;
+  esac
 
   if [ -n "$USAGE" ] && [ "$USAGE" != "null" ]; then
     input_tokens=$(echo "$USAGE" | jq -r '.input_tokens // 0')
@@ -63,8 +87,7 @@ if [ "$CONTEXT_PCT" -eq 0 ]; then
     cache_read=$(echo "$USAGE" | jq -r '.cache_read_input_tokens // 0')
 
     total=$((input_tokens + cache_creation + cache_read))
-    # Integer percentage: (total * 100) / 200000
-    CONTEXT_PCT=$((total * 100 / 200000))
+    CONTEXT_PCT=$((total * 100 / CONTEXT_WINDOW))
   fi
 
   # Update state file
