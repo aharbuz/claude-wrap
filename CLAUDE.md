@@ -87,11 +87,12 @@ Incrementally exports conversations during the session (on compaction) and final
 Monitors real context usage from API token counts and nudges/forces wrap-up at thresholds:
 
 - **60-69%**: Warn - finish current task, start preparing handoff
-- **70%+**: Critical - strongest warning, save work immediately (no tool blocking)
+- **70%+**: Critical - strongest warning, save work immediately
 
 **How it works**:
-- **PostToolUse**: Injects `systemMessage` warnings into Claude's context at each threshold
-- **PreToolUse**: At 70%+, injects critical-urgency warning (no tool blocking)
+- **UserPromptSubmit**: Runs once as Claude picks up each of your messages — not on tool calls. The nudge is injected via `additionalContext` (Claude sees it) and `systemMessage` (you see it). This avoids the old failure mode where the warning was bolted onto every tool call, producing a wall of duplicate messages.
+- **Once per band**: Emits at most one message per threshold band per session (one entering 60%, one entering 70%), tracked in `/tmp/claude-context-guard-{SESSION_ID}-band`. If context drops after a compaction and climbs again, the band resets and it can warn afresh.
+- **Context window**: Derived from the model ID (Opus 4.7/4.8 → 1M, other 4.x → 200k, unknown → 200k). The 1M window is a request-header beta not encoded in the model ID, so set `CLAUDE_CONTEXT_WINDOW` to override when the guess is wrong for your setup. A wrong 200k guess on a 1M session inflates every percentage ~5× and fires false alarms.
 - **Debouncing**: Caches usage in `/tmp/` state files, re-parses transcript only every 30 seconds
 - **Handoff**: At 60%+, instructs Claude to write `AGENTS/.convos/continue/[timestamp]-CONTINUE.md` — a continuation prompt that can be used to resume in a fresh session
 
@@ -122,18 +123,7 @@ claude -p "$(cat AGENTS/.convos/continue/2026-02-11-1445-CONTINUE.md)"
 
 2. Add to `~/.claude/settings.json` (alongside existing hooks):
    ```json
-   "PreToolUse": [
-     {
-       "hooks": [
-         {
-           "type": "command",
-           "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
-           "timeout": 10
-         }
-       ]
-     }
-   ],
-   "PostToolUse": [
+   "UserPromptSubmit": [
      {
        "hooks": [
          {
@@ -145,6 +135,11 @@ claude -p "$(cat AGENTS/.convos/continue/2026-02-11-1445-CONTINUE.md)"
      }
    ]
    ```
+
+   If you ran an earlier version wired under `PreToolUse`/`PostToolUse`, remove
+   `context-guard.sh` from those arrays — the hook now exits early on any event
+   other than `UserPromptSubmit`, so a stale wiring simply does nothing. (The
+   plan-verifier and prefer-pnpm hooks stay under `PreToolUse`.)
 
 ### Wrap-Up Skill (`/wrap-up`)
 
@@ -216,11 +211,6 @@ If the user rejects the plan and Claude revises, the next `ExitPlanMode` trigger
        "hooks": [
          {
            "type": "command",
-           "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
-           "timeout": 10
-         },
-         {
-           "type": "command",
            "command": "bash \"$HOME/.claude/hooks/plan-verifier.sh\"",
            "timeout": 10
          }
@@ -230,7 +220,7 @@ If the user rejects the plan and Claude revises, the next `ExitPlanMode` trigger
    ```
 
 **Interaction with other hooks**:
-- **Context guard**: Both run as PreToolUse hooks — context-guard checks context usage, plan-verifier checks for ExitPlanMode. They don't conflict since plan-verifier exits early for non-ExitPlanMode tools.
+- **Context guard**: Runs on `UserPromptSubmit`, not `PreToolUse`, so it no longer shares an event with plan-verifier — they can't conflict.
 - **Wrap-up skill**: Plan verification happens during active work, before the user triggers `/wrap-up`.
 
 ### Prefer pnpm
@@ -270,7 +260,7 @@ A PreToolUse hook that blocks `npm` commands and suggests `pnpm` equivalents. En
 claude-wrap/
 ├── hooks/
 │   ├── export-session.sh    # PreCompact + SessionEnd hook script
-│   ├── context-guard.sh     # PreToolUse/PostToolUse context monitor
+│   ├── context-guard.sh     # UserPromptSubmit context monitor
 │   ├── stop-wrapup.sh       # Retired - replaced by /wrap-up skill
 │   ├── plan-verifier.sh     # PreToolUse - plan audit before approval
 │   └── prefer-pnpm.sh      # PreToolUse - block npm, suggest pnpm
