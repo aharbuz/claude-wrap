@@ -122,12 +122,22 @@ Add to `~/.claude/settings.json`:
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
             "timeout": 10
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
           {
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/plan-verifier.sh\"",
             "timeout": 10
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
           {
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/prefer-pnpm.sh\"",
