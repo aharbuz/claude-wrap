@@ -82,74 +82,13 @@ Incrementally exports conversations during the session (on compaction) and final
 - Session metadata (date, ID)
 - Compaction separators between segments
 
-### Context Guard
-
-Monitors real context usage from API token counts and nudges/forces wrap-up at thresholds:
-
-- **60-69%**: Warn - finish current task, start preparing handoff
-- **70%+**: Critical - strongest warning, save work immediately
-
-**How it works**:
-- **UserPromptSubmit**: Runs once as Claude picks up each of your messages — not on tool calls. The nudge is injected via `additionalContext` (Claude sees it) and `systemMessage` (you see it). This avoids the old failure mode where the warning was bolted onto every tool call, producing a wall of duplicate messages.
-- **Once per band**: Emits at most one message per threshold band per session (one entering 60%, one entering 70%), tracked in `/tmp/claude-context-guard-{SESSION_ID}-band`. If context drops after a compaction and climbs again, the band resets and it can warn afresh.
-- **Context window**: Derived from the model ID (Opus 4.7/4.8 → 1M, other 4.x → 200k, unknown → 200k). The 1M window is a request-header beta not encoded in the model ID, so set `CLAUDE_CONTEXT_WINDOW` to override when the guess is wrong for your setup. A wrong 200k guess on a 1M session inflates every percentage ~5× and fires false alarms.
-- **Debouncing**: Caches usage in `/tmp/` state files, re-parses transcript only every 30 seconds
-- **Handoff**: At 60%+, instructs Claude to write `AGENTS/.convos/continue/[timestamp]-CONTINUE.md` — a continuation prompt that can be used to resume in a fresh session
-
-**Continuation prompt** (`AGENTS/.convos/continue/[timestamp]-CONTINUE.md`):
-
-When context runs high, Claude writes a continuation file containing:
-1. Summary of what was accomplished
-2. Current state and any issues
-3. Concrete next steps
-4. Key file paths
-
-Resume a fresh session with:
-```bash
-# Resume with the latest continuation prompt
-claude -p "$(cat "$(ls -t AGENTS/.convos/continue/*-CONTINUE.md | head -1)")"
-
-# Or specify the exact file
-claude -p "$(cat AGENTS/.convos/continue/2026-02-11-1445-CONTINUE.md)"
-```
-
-**Setup** (in addition to export hook):
-
-1. Copy hook to Claude config:
-   ```bash
-   cp hooks/context-guard.sh ~/.claude/hooks/
-   chmod +x ~/.claude/hooks/context-guard.sh
-   ```
-
-2. Add to `~/.claude/settings.json` (alongside existing hooks):
-   ```json
-   "UserPromptSubmit": [
-     {
-       "hooks": [
-         {
-           "type": "command",
-           "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
-           "timeout": 10
-         }
-       ]
-     }
-   ]
-   ```
-
-   If you ran an earlier version wired under `PreToolUse`/`PostToolUse`, remove
-   `context-guard.sh` from those arrays — the hook now exits early on any event
-   other than `UserPromptSubmit`, so a stale wiring simply does nothing. (The
-   plan-verifier and prefer-pnpm hooks stay under `PreToolUse`.)
-
 ### Wrap-Up Skill (`/wrap-up`)
 
-User-triggered session wrap-up. Replaces the previous automatic Stop hook, which was too jumpy — it fired on sub-task completions when the user intended to continue working.
+User-triggered session wrap-up. Replaces the previous automatic Stop hook, which was too jumpy — it fired on sub-task completions when the user intended to continue working. Also replaces the retired context-guard hook, which used to nudge wrap-up automatically at high context usage; that hook was removed for the same reason as the Stop hook — too jumpy — so wrap-up is now purely user-triggered.
 
 **How it works**: The user says `/wrap-up` (or "wrap up", "end session", "let's wrap up") and Claude runs through the wrap-up steps: update docs, write continuation prompt, commit, push.
 
-**Urgent sessions**: Context guard (60%+) still handles automatic wrap-up nudges. At 60% it mentions `/wrap-up` so Claude knows the explicit command exists.
-
-**Tradeoff**: Low-context sessions that end without `/wrap-up` won't get automatic doc updates or commits. The work is still on disk (SessionEnd export captures the conversation), just not committed. This is acceptable — false-positive interruptions from the old Stop hook were worse.
+**Tradeoff**: Sessions that end without `/wrap-up` won't get automatic doc updates or commits. The work is still on disk (SessionEnd export captures the conversation), just not committed. This is acceptable — false-positive interruptions from the old Stop hook and context-guard nudges were worse.
 
 **Setup**:
 
@@ -220,7 +159,6 @@ If the user rejects the plan and Claude revises, the next `ExitPlanMode` trigger
    ```
 
 **Interaction with other hooks**:
-- **Context guard**: Runs on `UserPromptSubmit`, not `PreToolUse`, so it no longer shares an event with plan-verifier — they can't conflict.
 - **Wrap-up skill**: Plan verification happens during active work, before the user triggers `/wrap-up`.
 
 ### Prefer pnpm
@@ -260,7 +198,6 @@ A PreToolUse hook that blocks `npm` commands and suggests `pnpm` equivalents. En
 claude-wrap/
 ├── hooks/
 │   ├── export-session.sh    # PreCompact + SessionEnd hook script
-│   ├── context-guard.sh     # UserPromptSubmit context monitor
 │   ├── stop-wrapup.sh       # Retired - replaced by /wrap-up skill
 │   ├── plan-verifier.sh     # PreToolUse - plan audit before approval
 │   └── prefer-pnpm.sh      # PreToolUse - block npm, suggest pnpm

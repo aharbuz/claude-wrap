@@ -33,29 +33,11 @@ AGENTS/.convos/
 | `SessionEnd` | `/clear` | Skips content, creates JSONL clear marker, renames with `_cleared` suffix |
 | `SessionEnd` | Logout | Skipped entirely |
 
-### Context Guard
-
-Monitors real context window usage from API token counts and nudges wrap-up at thresholds:
-
-- **60-69%**: Warn — finish current task, start preparing handoff
-- **70%+**: Critical — strongest warning, save work immediately
-
-At 60%+, Claude writes a continuation prompt to `AGENTS/.convos/continue/[timestamp]-CONTINUE.md` so you can resume in a fresh session:
-
-```bash
-# Resume with the latest continuation prompt
-claude -p "$(cat "$(ls -t AGENTS/.convos/continue/*-CONTINUE.md | head -1)")"
-```
-
-Uses debounced parsing (every 30 seconds) of actual API token counts from the transcript.
-
 ### Wrap-Up Skill (`/wrap-up`)
 
-User-triggered session wrap-up. Replaces the previous automatic Stop hook, which was too jumpy — it fired on sub-task completions when the user intended to continue working.
+User-triggered session wrap-up. Replaces the previous automatic Stop hook (too jumpy — fired on sub-task completions when the user intended to continue working) and the retired context-guard hook (used to nudge wrap-up automatically at high context usage; removed for the same reason).
 
 The user says `/wrap-up` and Claude runs through the wrap-up steps: update docs, write continuation prompt, commit, push.
-
-Context guard (60%+) still handles automatic wrap-up nudges and mentions `/wrap-up` so Claude knows the explicit command exists.
 
 ### Plan Verifier
 
@@ -80,7 +62,6 @@ cd claude-wrap
 
 # Copy hooks to Claude config
 cp hooks/export-session.sh ~/.claude/hooks/
-cp hooks/context-guard.sh ~/.claude/hooks/
 cp hooks/plan-verifier.sh ~/.claude/hooks/
 cp hooks/prefer-pnpm.sh ~/.claude/hooks/
 chmod +x ~/.claude/hooks/*.sh
@@ -117,15 +98,6 @@ Add to `~/.claude/settings.json`:
     ],
     "PreToolUse": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "ExitPlanMode",
         "hooks": [
           {
@@ -141,17 +113,6 @@ Add to `~/.claude/settings.json`:
           {
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/prefer-pnpm.sh\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$HOME/.claude/hooks/context-guard.sh\"",
             "timeout": 10
           }
         ]
@@ -189,7 +150,6 @@ The markdown export includes:
 claude-wrap/
 ├── hooks/
 │   ├── export-session.sh    # PreCompact + SessionEnd hook script
-│   ├── context-guard.sh     # PreToolUse/PostToolUse context monitor
 │   ├── plan-verifier.sh     # PreToolUse - plan audit before approval
 │   ├── prefer-pnpm.sh       # PreToolUse - block npm, suggest pnpm
 │   └── stop-wrapup.sh       # Retired - replaced by /wrap-up skill
